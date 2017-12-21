@@ -1,0 +1,175 @@
+/*
+  Autor: Logan Destefani Merazzi
+  Data de criação: 2015/03/19
+  Post: https://wp.me/p3rnUg-5h
+  Objetivo:
+    Remover todas as propriedades de um banco.
+    São excluídas as propriedades de: 
+      - Tabelas
+      - Colunas
+      - Indices
+      - Constraints (Check, FK, UK, PK)
+*/
+
+
+BEGIN TRANSACTION RemoveDicionario
+
+BEGIN TRY
+
+  SET NOCOUNT ON
+
+  DECLARE @psScript varchar(max)
+  SET  @psScript = ''
+
+  --Tabela
+  SELECT @psScript = cast(@psScript as varchar(max)) + 'EXEC sys.sp_dropextendedproperty
+  @name = ''' + sep.name + '''
+  ,@level0type = ''schema''
+  ,@level0name = ''' + OBJECT_SCHEMA_NAME(sep.major_id) + '''
+  ,@level1type = ''table''
+  ,@level1name = ''' + OBJECT_NAME(sep.major_id) + '''' + '
+  '
+  FROM sys.extended_properties sep
+  JOIN sys.tables tab
+  ON 
+    sep.major_id = tab.object_id
+  WHERE 
+    sep.class_desc = 'OBJECT_OR_COLUMN' AND
+    sep.minor_id = 0 AND
+    SEP.NAME = 'MS_Description' -- Para não retornar os comentários dos diagramas.
+
+  --colunas
+  SELECT @psScript = cast(@psScript as varchar(max)) + 'EXEC sys.sp_dropextendedproperty
+  @name = ''' + sep.name + '''
+  ,@level0type = ''schema''
+  ,@level0name = ''' + OBJECT_SCHEMA_NAME(sep.major_id) + '''
+  ,@level1type = ''table''
+  ,@level1name = ''' + OBJECT_NAME(sep.major_id) + '''
+  ,@level2type = ''column''
+  ,@level2name = ''' + col.name + '''' + '
+  '
+  FROM sys.extended_properties AS sep
+  JOIN sys.columns AS col
+  ON 
+    col.object_id = sep.major_id AND
+    col.column_id = sep.minor_id
+  WHERE
+    sep.class_desc = 'OBJECT_OR_COLUMN' AND
+    sep.minor_id > 0 AND
+    SEP.NAME = 'MS_Description'
+
+  -- Indexes
+  SELECT @psScript = cast(@psScript as varchar(max)) +  'EXEC sys.sp_dropextendedproperty
+  @name = ''' + sep.name + '''
+  ,@level0type = ''schema''
+  ,@level0name = ''' + OBJECT_SCHEMA_NAME(sep.major_id) + '''
+  ,@level1type = ''table''
+  ,@level1name = ''' + OBJECT_NAME(sep.major_id) + '''
+  ,@level2type = ''index''
+  ,@level2name = ''' + sys.indexes.name + '''' + '
+  '
+  FROM sys.extended_properties AS sep 
+  JOIN sys.indexes 
+  ON 
+    sys.indexes.object_id = sep.major_id AND 
+    sys.indexes.index_id = sep.minor_id
+  WHERE
+    (sep.class_desc = 'INDEX') AND
+    (sep.minor_id > 0) AND 
+    SEP.NAME = 'MS_Description'
+
+  --check constraints
+  SELECT @psScript = cast(@psScript as varchar(max)) +   'EXEC sys.sp_dropextendedproperty
+  @name = ''' + sep.name + '''
+  ,@level0type = ''schema''
+  ,@level0name = ''' + OBJECT_SCHEMA_NAME(sep.major_id) + '''
+  ,@level1type = ''table''
+  ,@level1name = ''' + OBJECT_NAME(cc.parent_object_id) + '''
+  ,@level2type = ''constraint''
+  ,@level2name = ''' + cc.name + ''''+ '
+  '
+  FROM sys.extended_properties sep
+  JOIN sys.check_constraints cc 
+  ON
+    sep.major_id = cc.object_id AND 
+    SEP.NAME = 'MS_Description'
+
+  -- UKs
+  SELECT @psScript = cast(@psScript as varchar(max)) +   'EXEC sys.sp_dropextendedproperty
+  @name = ''' + sep.name + '''
+  ,@level0type = ''schema''
+  ,@level0name = ''' + OBJECT_SCHEMA_NAME(sep.major_id) + '''
+  ,@level1type = ''table''
+  ,@level1name = ''' + OBJECT_NAME(kc.parent_object_id) + '''
+  ,@level2type = ''constraint''
+  ,@level2name = ''' + kc.name + '''' + '
+  '
+  FROM sys.extended_properties sep
+  JOIN sys.key_constraints kc 
+  ON
+    sep.major_id = kc.object_id AND 
+    SEP.NAME = 'MS_Description' AND
+    kc.type_desc = 'UNIQUE_CONSTRAINT'
+
+  --FKs
+  SELECT @psScript = cast(@psScript as varchar(max)) +   'EXEC sys.sp_dropextendedproperty
+  @name = ''' + sep.name + '''
+  ,@level0type = ''schema''
+  ,@level0name = ''' + OBJECT_SCHEMA_NAME(sep.major_id) + '''
+  ,@level1type = ''table''
+  ,@level1name = ''' + OBJECT_NAME(fk.parent_object_id) + '''
+  ,@level2type = ''constraint''
+  ,@level2name = ''' + fk.name + '''' + '
+  '
+  FROM sys.extended_properties sep
+  JOIN sys.foreign_keys fk 
+  ON
+    sep.major_id = fk.object_id AND 
+    SEP.NAME = 'MS_Description'
+
+  --PKs
+  SELECT @psScript = cast(@psScript as varchar(max)) +   'EXEC sys.sp_dropextendedproperty
+  @level0type = N''SCHEMA'', @level0name = ['+ SCH.name + '], 
+  @level1type = ''TABLE'', @level1name = [' + Tab.name + '] , 
+  @level2type = ''CONSTRAINT'', @level2name = [' + KC.name + '] ,
+  @name = ''' + SEP.name + ''''
+   + '
+  '
+  FROM sys.tables Tab
+  JOIN sys.schemas SCH 
+  ON 
+    Tab.schema_id = SCH.schema_id
+  JOIN sys.key_constraints KC 
+  ON 
+    Tab.object_id = KC.parent_object_id
+  JOIN sys.extended_properties SEP
+  ON 
+    SEP.major_id = KC.object_id 
+  WHERE
+    KC.type_desc = N'PRIMARY_KEY_CONSTRAINT'  AND 
+    SEP.NAME = 'MS_Description'
+
+  --select @psScript
+  exec (@psScript)
+
+  -- Terminou sem erros...
+  commit tran RemoveDicionario
+
+END TRY
+BEGIN CATCH
+
+  IF @@TRANCOUNT > 0
+    rollback tran RemoveDicionario
+
+  DECLARE @ErrorMessage NVARCHAR(4000);
+  DECLARE @ErrorSeverity INT;
+  DECLARE @ErrorState INT;
+
+  SELECT 
+   @ErrorMessage = ERROR_MESSAGE(),
+   @ErrorSeverity = ERROR_SEVERITY(),
+   @ErrorState = ERROR_STATE();
+
+  RAISERROR (@ErrorMessage, @ErrorSeverity, @ErrorState);
+
+END CATCH
