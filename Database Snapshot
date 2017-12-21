@@ -1,0 +1,124 @@
+/*
+  Autor: Logan Destefani Merazzi
+  Data de criação: 2013/04/12
+  Post: https://wp.me/p3rnUg-2h
+  Objetivo:
+    Explicar como funciona um snapshot database: Criação, usos e 'restore'
+*/
+
+USE master
+
+/*
+   Criando o banco, a tabela e inserindo alguns registros...
+*/
+
+CREATE DATABASE Origem
+ON (NAME ='Data',
+    FILENAME = N'D:\Bases\DatabaseSnapshot\Origem_Data.mdf')
+LOG
+ON (NAME = 'Log',
+    FILENAME = N'D:\Bases\DatabaseSnapshot\Origem_Log.ldf')
+
+GO
+
+USE Origem
+
+GO
+
+CREATE TABLE Pessoa (Codigo int identity(1,1), Nome char(2000), nascimento date)
+GO
+
+INSERT INTO Pessoa 
+VALUES ('Logan', '1981-05-25'), ('Fulano', '1980-05-25'),
+       ('Ciclano', '1979-05-25'), ('Beltrano', '1980-07-25'),
+       ('Astrogildo', '1980-07-25')
+
+GO
+
+/*
+  Criação do Snapshot do Banco Origem
+*/
+CREATE DATABASE DatabaseSnapshot
+ON
+(name = Data , FILENAME =  'D:\Bases\DatabaseSnapshot\DBSS_Data.ss')
+AS 
+SNAPSHOT OF Origem
+
+GO
+
+
+/*
+  Alteração de alguns dados na base de origem
+*/
+UPDATE Pessoa
+SET nome = 'Logan Merazzi', nascimento = '2013-04-10'
+WHERE Codigo = 1
+
+DELETE FROM Pessoa WHERE Codigo = 5
+
+INSERT INTO Pessoa VALUES ('Waldisnei','1985-05-30')
+
+-- Comparando
+SELECT POrig.Codigo, POrig.Nome, POrig.nascimento, 
+       PSnap.Codigo, PSnap.Nome, PSnap.nascimento
+FROM Pessoa POrig 
+FULL JOIN DatabaseSnapshot.dbo.Pessoa PSnap
+ON (POrig.Codigo = PSnap.Codigo)
+
+/*
+  Criação de um Segundo Snapshot, para podermos consultar os estados...
+*/
+
+CREATE DATABASE DatabaseSnapshot_V2
+ON
+(name = Data , FILENAME =  'D:\Bases\DatabaseSnapshot\DBSSV2_Data.ss')
+AS 
+SNAPSHOT OF Origem
+GO
+
+update Pessoa
+set nome = RTRIM(Nome) + ' A', nascimento = '2020-10-10'
+where Codigo in (3,6)
+
+-- Comparando
+SELECT POrig.Codigo, POrig.Nome, POrig.nascimento, 
+       PSnap.Codigo, PSnap.Nome, PSnap.nascimento,
+       PSnap2.Codigo, PSnap2.Nome, PSnap2.nascimento
+FROM Pessoa POrig 
+FULL JOIN DatabaseSnapshot.dbo.Pessoa PSnap
+ON (POrig.Codigo = PSnap.Codigo)
+FULL JOIN DatabaseSnapshot_V2.dbo.Pessoa PSnap2
+ON (POrig.Codigo = PSnap2.Codigo)
+
+
+/*
+   Vamos restaurar o snapshot para a posição original...
+*/
+use master
+RESTORE DATABASE Origem
+FROM DATABASE_SNAPSHOT = 'DatabaseSnapshot';
+-- Erro?
+
+-- Precisamos dropar os demais snapshots...
+DROP DATABASE DatabaseSnapshot_V2
+
+-- E agora? Vai?
+RESTORE DATABASE Origem
+FROM DATABASE_SNAPSHOT = 'DatabaseSnapshot';
+
+
+select * from DatabaseSnapshot.dbo.Pessoa
+select * from Origem.dbo.Pessoa
+
+-- Vamos apagar alguns registros do snapshot
+use DatabaseSnapshot
+delete from Pessoa --> READ ONLY!!!
+
+/*
+  Exclusão das tabelas acima...
+*/
+  use master
+  drop database DatabaseSnapshot
+  alter database Origem set single_user with rollback immediate
+  drop database Origem
+
