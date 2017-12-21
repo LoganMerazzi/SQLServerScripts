@@ -1,0 +1,101 @@
+/*
+  Autor: Logan Destefani Merazzi
+  Data de criação: 2014/03/19
+  Post: https://wp.me/p3rnUg-4g
+  Objetivo:
+    Mostrar o uso do For XML Path para concatenar registros de duas tabelas, intercaladamente.
+*/
+
+-- Criação da estrutura e inserção da dados.
+-- Como a ideia é apenas mostrar o SQL, ignore aqui qualquer regra de boa prática ou normalização.
+create table status (Codigo int identity(1,1) primary key, Descricao varchar(50) )
+create table Produto (Codigo int identity(1,1) primary key, Nome varchar(50), Sigla char(5), CodigoProdutoPai int)
+create table historico (Codigo int identity(1,1) primary key, CodigoPessoa int, CodigoProduto int, CodigoStatus int)
+
+insert into status values ('Ok'), ('Defeito'), ('Conserto'),('Testar')
+insert into produto values ('produto 1', 'PROD1',null),('produto 2', 'PROD2',1),('produto 3', 'PROD3',null)
+insert into historico values (1,1,4),(1,1,2),(1,1,1),(1,2,1),(2,3,1),(1,3,4),(1,3,1)
+
+-- Os dados a serem concatenados:
+SELECT 
+  STH.Descricao, PRD.Sigla
+FROM Produto PRD
+JOIN Historico HIS 
+ON (HIS.CodigoProduto = PRD.Codigo) 
+join Status STH
+ON  (STH.Codigo = HIS.CodigoStatus)
+WHERE 
+  (HIS.CodigoPessoa = 1) AND 
+  (PRD.CodigoProdutoPai IS NULL) 
+ORDER BY descricao
+
+-- Mostrando o efeito do FOR XML Path
+SELECT 
+  CONVERT(VARCHAR(100), TMP.Descricao + ' ' + TMP.Sigla + ', ' ) as [text()] 
+FROM 
+( 
+    SELECT 
+        STH.Descricao, DSS.Sigla
+    FROM Produto DSS 
+    JOIN Historico HSS 
+        ON (HSS.CodigoProduto = DSS.Codigo) 
+    JOIN Status STH
+        ON(STH.Codigo = HSS.CodigoStatus)
+    WHERE 
+        (HSS.CodigoPessoa = 1) AND 
+        (DSS.CodigoProdutoPai IS NULL) 
+) AS TMP 
+FOR XML PATH('')
+
+-- Usando o cross apply, para retornar em uma linha para cada descrição
+SELECT CONVERT(VARCHAR(100), STH.Descricao + ' (' + ltrim(temp.lista) + ' ) ' )  as [text()]
+FROM status STH
+CROSS APPLY (
+  SELECT 
+    CONVERT(VARCHAR(100), ', ' + TMP.Sigla ) as [text()] 
+  FROM 
+  ( 
+    SELECT 
+      DSS.Sigla
+    FROM Produto DSS 
+    JOIN Historico HSS 
+      ON (HSS.CodigoProduto = DSS.Codigo) 
+    WHERE 
+      (STH.Codigo = HSS.CodigoStatus) AND
+      (HSS.CodigoPessoa = 1) AND 
+      (DSS.CodigoProdutoPai IS NULL) 
+  ) AS TMP 
+  FOR XML PATH('')
+) temp (lista)
+WHERE temp.lista IS NOT NULL
+
+-- Aplicando o FOR XML Path novamente, para concatenar o resultado anterior e realizar o tratamento das informações
+DECLARE @Resultado varchar(200)  
+SET @Resultado = 
+(
+  select * from 
+    (
+        SELECT CONVERT(VARCHAR(100), STH.Descricao + ' (' + ltrim(temp.lista) + ' ) ' )  as [text()]
+        FROM status STH
+        CROSS APPLY (
+          SELECT 
+            CONVERT(VARCHAR(100), ', ' + TMP.Sigla ) as [text()] 
+          FROM 
+          ( 
+            SELECT 
+              DSS.Sigla
+            FROM Produto DSS 
+            JOIN Historico HSS 
+              ON (HSS.CodigoProduto = DSS.Codigo) 
+            WHERE 
+              (STH.Codigo = HSS.CodigoStatus) AND
+              (HSS.CodigoPessoa = 1) AND 
+              (DSS.CodigoProdutoPai IS NULL) 
+          ) AS TMP 
+          FOR XML PATH('')
+        ) temp (lista)
+        WHERE temp.lista IS NOT NULL
+    ) AS tmp2
+    FOR XML PATH('')
+)
+SELECT replace(@Resultado, '(,','(')
