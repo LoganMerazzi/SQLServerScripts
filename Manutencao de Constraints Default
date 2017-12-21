@@ -1,0 +1,90 @@
+/*
+  Autor: Logan Destefani Merazzi
+  Data de criação: 2011/12/13
+  Post: https://wp.me/p3rnUg-1r
+  Objetivo:
+    Script de manutenção de constraints default criadas fora do padrão DF_TABELA_COLUNA
+    Normalmente utilizado quando a constraint é criada sem que seja especificado um nome.
+*/
+
+-- Criação da tabela de teste
+CREATE TABLE MinhaTabela 
+    (
+      Codigo int identity, 
+      Nome varchar(100) NOT NULL, 
+      Valor int NOT NULL, 
+      Data datetime not null CONSTRAINT DF_MinhaTabela_Data default getdate()
+    )
+
+GO
+
+-- Inserção de uma nova constraint
+ALTER TABLE MinhaTabela 
+ADD CONSTRAINT DF_MinhaTabela_Valor 
+DEFAULT 0 FOR Valor
+
+GO
+-- Verificação das constraints criadas
+sp_help MinhaTabela 
+
+GO
+-- Exclusão da constraint, para criação de uma nova, sem especificar o nome
+ALTER TABLE MinhaTabela DROP CONSTRAINT DF_MinhaTabela_Valor 
+
+go
+-- Criação da constraint
+ALTER TABLE MinhaTabela ADD DEFAULT 0 FOR Valor
+
+go
+-- Verificação da constraint criada
+sp_help MinhaTabela 
+
+Go
+
+-- Script de alteração de todas as constraints na base que estão fora do padrão.
+DECLARE @Default_Correto varchar(100)
+DECLARE @Nome_Objeto varchar(100)
+DECLARE @Nome_Coluna varchar(100)
+DECLARE @Default_Errado varchar(100)
+DECLARE @Default_Definicao varchar(100)
+DECLARE @Comando varchar(150)
+
+DECLARE Cur_AjustaDF Cursor 
+FOR
+select 'DF_' + OBJ.name + '_' + COL.name AS NomeCorreto, OBJ.Name, col.name, DEF.name, DEF.DEFINITION
+from sys.columns COL
+join sys.default_constraints DEF
+ON 
+ (COL.object_id = DEF.parent_object_id) AND 
+ (COL.column_id = DEF.parent_column_id)
+join sys.objects OBJ
+ON (COL.object_id = OBJ.object_id)
+where
+ (DEF.is_system_named = 1) AND
+ (OBJ.is_ms_shipped = 0) AND
+ (OBJ.type = 'U')
+
+OPEN Cur_AjustaDF
+
+FETCH NEXT FROM Cur_AjustaDF
+INTO @Default_Correto, @Nome_Objeto, @Nome_Coluna, @Default_Errado, @Default_Definicao 
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+  SET @Comando = ' ALTER TABLE ' + @Nome_Objeto + ' DROP CONSTRAINT ' + @Default_Errado
+  EXEC (@Comando)
+
+  SET @Comando = 'ALTER TABLE  '+ @Nome_Objeto + ' ADD CONSTRAINT ' + @Default_Correto + ' DEFAULT ' + @Default_Definicao + ' FOR ' + @Nome_Coluna
+  EXEC (@Comando)
+
+FETCH NEXT FROM Cur_AjustaDF
+INTO @Default_Correto, @Nome_Objeto, @Nome_Coluna, @Default_Errado, @Default_Definicao 
+
+END
+CLOSE Cur_AjustaDF
+DEALLOCATE Cur_AjustaDF
+
+GO
+
+-- Verificação final.
+sp_help MinhaTabela 
