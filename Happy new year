@@ -1,3 +1,11 @@
+/*
+  Autor: Logan Destefani Merazzi
+  Data de criação: 2013/12/31
+  Post:https://wp.me/p3rnUg-45
+  Objetivo:
+    Mostrar como usar Spatial Data no SQL Server, escrevendo uma msg de Feliz Ano Novo.
+*/
+
 SELECT geometry::STLineFromText('LINESTRING(0 0, 0 1)', 0).STBuffer(0.01)
 UNION ALL
 SELECT geometry::STLineFromText('LINESTRING(0 1, 0.5 1)', 0).STBuffer(0.01)
